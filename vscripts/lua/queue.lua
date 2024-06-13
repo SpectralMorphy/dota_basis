@@ -26,7 +26,8 @@ function queue:constructor()
 	self.closed = false		---@type boolean			# `read-only` <br> Is this queue closed
 	self.ended = false		---@type boolean			# `read-only` <br> Queue is closed and all jobs are completed
 	self.parent = nil		---@type basis.queue.job?	# `read-only` <br> Job this queue is parented to (as 'before' or 'after')
-	self._callbacks = {}	---@type basis.queue.callback[]
+	self._overCallbacks = {}	---@type basis.queue.callback[]
+	self._endCallbacks = {}		---@type basis.queue.callback[]
 	
 	setmetatable(self, {
 		---@param self basis.queue
@@ -74,7 +75,7 @@ function queue:job(index, callback)
 		_job[k] = v
 	end
 	
-	_job:constructor(queue, callback)
+	_job:constructor(self, callback)
 
 	return _job
 end
@@ -101,7 +102,7 @@ end
 --- Was this queue started
 ---@return boolean
 function queue:isStarted()
-	local job =  self.jobs[1]
+	local job = self.jobs[1]
 	if job and not job.started then
 		return true
 	end
@@ -120,22 +121,63 @@ end
 
 -----------------------------------------------
 
---- Callback when queue ended
+--- Callback when queue ends
 ---@param callback basis.queue.callback
 ---@return basis.queue
 function queue:onEnd(callback)
 	if self.ended then
 		callback(self)
 	else
-		table.insert(self._callbacks, callback)
+		table.insert(self._endCallbacks, callback)
 	end
 	return self
 end
 
 -----------------------------------------------
 
+--- Is this queue empty? (no any jobs were added)
+---@return boolean
+function queue:isEmpty()
+	return self.jobs[1] == nil
+end
+
+-----------------------------------------------
+
+--- If all jobs in queue are completed (and queue is not empty)
+---@return boolean
+function queue:isOver()
+	if self:isEmpty() then
+		return false
+	end
+	return self:getLast().done
+end
+
+-----------------------------------------------
+
+--- Callback when queue is over
+---@param callback basis.queue.callback
+function queue:onOver(callback)
+	if self:isOver() then
+		callback(self)
+	else
+		table.insert(self._overCallbacks, callback)
+	end
+end
+
+-----------------------------------------------
+
 ---@param self basis.queue
 function _.tryEnd(self)
+	
+	--- over callbacks
+	if self:isOver() then
+		for _, callback in ipairs(self._overCallbacks) do
+			callback(self)
+		end
+		self._overCallbacks = {}
+	end
+
+	--- end checks
 	if not self.closed then
 		return
 	end
@@ -143,11 +185,12 @@ function _.tryEnd(self)
 		return
 	end
 	
-	for _, callback in ipairs(self._callbacks) do
+	--- end callbacks
+	for _, callback in ipairs(self._endCallbacks) do
 		callback(self)
 	end
 	
-	self._callbacks = {}
+	self._endCallbacks = {}
 	self.ended = true
 end
 
@@ -164,6 +207,14 @@ function queue:getIndex(job)
 		end
 	end
 	return -1
+end
+
+-----------------------------------------------
+
+--- Last job in queue
+---@return basis.queue.job?
+function queue:getLast()
+	return self.jobs[#self.jobs]
 end
 
 -----------------------------------------------
@@ -212,15 +263,8 @@ function job:constructor(queue, callback)
 	self._result = {}			---@type any[]
 	self._split = {}			---@type basis.queue.job._split[]
 	self._merge = {}			---@type basis.queue[]
-	
-	local function child()
-		local _queue = constructor.new()
-		_queue.parent = self
-		_queue:job()
-		return _queue
-	end
-	self.before = child()		--- `read-only` <br> Queue to be started with job, before the callback
-	self.after = child()		--- `read-only` <br> Queue to be started with job, after the callback
+	self._before = nil			---@type basis.queue?
+	self._arter = nil			---@type basis.queue?
 	
 	setmetatable(self, {
 		---@param self basis.queue.job
@@ -228,6 +272,16 @@ function job:constructor(queue, callback)
 			return self:invoke(...)
 		end
 	})
+end
+
+-----------------------------------------------
+
+---@param self basis.queue.job
+local function child(self)
+	local _queue = constructor.new()
+	_queue.parent = self
+	_queue:job()
+	return _queue
 end
 
 -----------------------------------------------
@@ -248,7 +302,29 @@ end
 
 -----------------------------------------------
 
---- Wait queue to end (don't forget to close it), before this job can be started.
+--- Queue to be started with job, before the callback. No need to close.
+---@return basis.queue
+function job:before()
+	if not self._before then
+		self._before = child(self)
+	end
+	return self._before
+end
+
+-----------------------------------------------
+
+--- Queue to be started with job, after the callback. No need to close.
+---@return basis.queue
+function job:after()
+	if not self._after then
+		self._after = child(self)
+	end
+	return self._after
+end
+
+-----------------------------------------------
+
+--- Wait passed queue to end (don't forget to close it), before this job can be started.
 --- May take a setup-function as parameter. In this case new queue will be created and passed to the setup-function
 ---@param queue basis.queue | basis.queue.setup
 ---@return basis.queue.job
@@ -277,7 +353,7 @@ end
 
 -----------------------------------------------
 
---- Start queue after this job is completed. <br>
+--- Start passed queue after this job is completed. <br>
 --- May take a setup-function as parameter. In this case new queue will be created and passed to the setup-function
 ---@param queue basis.queue | basis.queue.setup
 ---@return basis.queue.job
@@ -382,39 +458,63 @@ function _.tryStart(self)
 	self.running = true
 	
 	------------------------
-	-- execute job
+	-- start job
 	
-	self.before:start()
+	local function start()
+		
+		if self.callback then
+			self:callback(unpack(self.args))
+			self.callbacked = true
+		end
+		
+		------------------------
+		-- complete job
 	
-	if self.callback then
-		self:callback(unpack(self.args))
-		self.callbacked = true
+		local function complete()
+		
+			self.running = false
+			self.done = true
+			
+			------------------------
+			-- next job
+			
+			self.queue.current = self.queue.current + 1
+			local nextJob = self.queue:getCurrent()
+			if nextJob then
+				_.tryStart(nextJob)
+			else
+				_.tryEnd(self.queue)
+			end
+			
+			------------------------
+			-- start splitted queues
+			
+			for _, split in ipairs(self._split) do
+				split.queue:start(split.key)
+			end
+			
+		end
+		
+		------------------------
+		-- after queue
+		
+		if self._after then
+			self._after:onOver(complete)
+			self._after:start()
+		else
+			complete()
+		end
+		
 	end
-	
-	self.after:start()
-	
+		
 	------------------------
-	-- completed state
+	-- before queue
 	
-	self.running = false
-	self.done = true
-	
-	------------------------
-	-- next job
-	
-	self.queue.current = self.queue.current + 1
-	local nextJob = self.queue:getCurrent()
-	if nextJob then
-		_.tryStart(nextJob)
+	if self._before then
+		self._before:onOver(start)
+		self._before:start()
 	else
-		_.tryEnd(self.queue)
-	end
-	
-	------------------------
-	-- splitted queues
-	
-	for _, split in ipairs(self._split) do
-		split.queue:start(split.key)
+		start()
 	end
 	
 end
