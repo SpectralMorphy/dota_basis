@@ -367,7 +367,7 @@ function _.tryStart(self)
 	end
 	
 	------------------------
-	-- merged queues
+	-- check merged queues
 	
 	for _, queue in ipairs(self._merge) do
 		if not queue.ended then
