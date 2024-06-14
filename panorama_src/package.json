@@ -1,0 +1,15 @@
+{
+	"scripts": {
+		"build": "node --preserve-symlinks node_modules/webpack/bin/webpack.js --config webpack.config.js",
+		"dev": "node --preserve-symlinks node_modules/webpack/bin/webpack.js --config webpack.config.js --watch"
+	},
+	"devDependencies": {
+		"fork-ts-checker-webpack-plugin": "^9.0.2",
+		"panorama-types": "^1.6.1",
+		"ts-loader": "^9.5.1",
+		"typescript": "^5.4.5",
+		"webpack": "^5.0.0-rc.6",
+		"webpack-cli": "^5.1.4",
+		"webpack-panorama": "^0.2.0"
+	}
+}
