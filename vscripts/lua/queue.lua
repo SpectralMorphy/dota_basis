@@ -28,13 +28,6 @@ function queue:constructor()
 	self.parent = nil		---@type basis.queue.job?	# `read-only` <br> Job this queue is parented to (as 'before' or 'after')
 	self._overCallbacks = {}	---@type basis.queue.callback[]
 	self._endCallbacks = {}		---@type basis.queue.callback[]
-	
-	setmetatable(self, {
-		---@param self basis.queue
-		__call = function(self, ...)
-			return self:job(...)
-		end
-	})
 end
 
 -----------------------------------------------
@@ -51,7 +44,10 @@ function queue:job(index, callback)
 	end
 
 	---@type basis.queue.job
-	local _job = {}
+	local _job = setmetatable({}, {
+		__index = job,
+		__call = job.invoke
+	})
 	
 	------------------------
 	-- put in queue
@@ -70,10 +66,6 @@ function queue:job(index, callback)
 	
 	------------------------
 	-- init job
-	
-	for k, v in pairs(job) do
-		_job[k] = v
-	end
 	
 	_job:constructor(self, callback)
 
@@ -265,13 +257,6 @@ function job:constructor(queue, callback)
 	self._merge = {}			---@type basis.queue[]
 	self._before = nil			---@type basis.queue?
 	self._arter = nil			---@type basis.queue?
-	
-	setmetatable(self, {
-		---@param self basis.queue.job
-		__call = function(self, ...)
-			return self:invoke(...)
-		end
-	})
 end
 
 -----------------------------------------------
@@ -528,11 +513,10 @@ end
 function constructor.new()
 	
 	---@type basis.queue
-	local _queue = {}
-	
-	for k, v in pairs(queue) do
-		_queue[k] = v
-	end
+	local _queue = setmetatable({}, {
+		__index = queue,
+		__call = queue.job
+	})
 	
 	_queue:constructor()
 	
