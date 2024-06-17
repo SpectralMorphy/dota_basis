@@ -4,7 +4,23 @@ import './panorama_adapter'
 import * as React from 'react'
 import { render } from 'react-panorama'
 
-let parent = $.GetContextPanel().GetParent() as Panel
-render(<Label text="Hello, world!" />, parent);
+abstract class Lib {
+	
+	abstract name: string
+}
 
-$.Msg('yo')
+class Basis extends Lib {
+
+	name = 'basis'
+}
+
+// ----------------------------------------------------------------------------------------------
+
+const basis = new Basis()
+
+
+
+// -----------------------------------------------
+
+
+// (GameUI.CustomUIConfig() as any).basis = new Basis()
