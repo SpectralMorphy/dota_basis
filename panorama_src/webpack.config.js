@@ -1,6 +1,7 @@
 const path = require('path')
 const { PanoramaTargetPlugin } = require('webpack-panorama')
 const ForkTsCheckerWebpackPlugin = require('fork-ts-checker-webpack-plugin')
+const CustomModuleIdsPlugin = require('custom-module-ids-webpack-plugin');
 
 // ========================================================================
 
@@ -11,31 +12,25 @@ function isSubdir(parent, child){
 
 // ========================================================================
 
-const coreModules = [
-	'node_modules/react',
-	'node_modules/react-panorama',
-]
-
 module.exports = {
-	experiments: {
-		layers: true,
-	},
-
 	context: path.resolve('src'),
 	entry: {
 		// test: './test.tsx',
-		core: { 
-			import: './core.tsx',
-			layer: 'core',
-		},
+		core: './core.tsx',
 	},
 
-	mode: 'development',
-	// context: path.resolve('src'),
+	mode: 'production',
+	// mode: 'development',
 	output: {
 		chunkFormat: 'array-push',
 		path: path.resolve('../panorama'),
 		// publicPath: "file://{resources}/layout/custom_game/",
+	},
+	
+	optimization: {
+		moduleIds: false,
+		concatenateModules: false,
+		mangleExports: false,
 	},
 
 	resolve: {
@@ -51,12 +46,6 @@ module.exports = {
 				loader: 'ts-loader',
 				options: { transpileOnly: true },
 			},
-			{
-				test: /\.jsx?$/,
-				include: file => coreModules.some(module => isSubdir(path.resolve(module), file)),
-				issuerLayer: layer => (layer != 'core'),
-				loader: path.resolve('basis_core_loader.js')
-			}
 		]
 	},
 	
@@ -66,6 +55,9 @@ module.exports = {
 			typescript: {
 				configFile: path.resolve('tsconfig.json'),
 			},
+		}),
+		new CustomModuleIdsPlugin({
+			idFunction: require('./compiler/module_name').moduleName,
 		}),
 	],
 }

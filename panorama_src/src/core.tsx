@@ -315,6 +315,10 @@ export class Lib {
 		return state
 	}
 	
+	setLoaded(module: string, exports: LibModuleExports){
+		this.loaded[this.parseModuleName(module)] = exports
+	}
+	
 	/**
 	!!!
 	 */
@@ -458,21 +462,6 @@ onInit(()=>{
 // Log
 //----------------------------------------------------------------------------------------------
 
-function Shet(){
-	
-	let [x, setX] = React.useState(0)
-	
-	function move(){
-		setX(x+100)
-	}
-	
-	const style = {x: `${x}px`, transitionProperty: 'position', transitionDuration: '0.3s',
-		backgroundColor: '#3379'
-	}
-	
-	return <Button style={style} onactivate={move}><Label text="Hello"/></Button>
-}
-
 export class Log{
 
 	panel: Panel
@@ -481,15 +470,36 @@ export class Log{
 		const JSX = this.JSX.bind(this)
 		react_panorama.render(<JSX />, parent)
 		this.panel = basis.lastChild(parent)!
+		
+		const styleProxy = new Proxy(
+			this.panel.style,
+			{
+				get(target, key: keyof VCSSStyleDeclaration){
+					return target[key]
+				},
+				set(target, key: keyof VCSSStyleDeclaration, value){
+					target[key] = value
+					return true
+				},
+			}
+		)
+		Object.defineProperty(this.panel, 'style', {
+			get(){
+				return styleProxy
+			},
+		})
+		
+		this.panel.style.marginTop = '200px'
 	}
 	
 	private JSX(){
-		$.Msg(this && this.hide)
-		return <Panel style={{width: '200px', height: '200px', backgroundColor: 'red'}}/>
+		let [x, sx] = React.useState(0)
+		
+		return <Panel style={{width: '200px', height: '200px', backgroundColor: 'red', x: `${x}px`, marginTop: '20px', transitionProperty: 'position', transitionDuration: '0.3s'}} onactivate={() => sx(x+50)}/>
 	}
 	
 	hide(){
-	
+		// this.panel.style.marginTop = '200px'
 	}
 	
 	show(){
@@ -613,9 +623,17 @@ const basis = new Basis()
 ;(GameUI.CustomUIConfig() as any).basis = basis
 
 //-----------------------------------------------
-// export react-panorama
+// re-export bundle modules
 
-basis.loaded['react-panorama'] = react_panorama
+for(let module in __webpack_modules__){
+	if(
+		module != 'panorama_adapter' && 
+		module != 'core' &&
+		!module.startsWith('_/')
+	){
+		basis.setLoaded(module, __webpack_require__(module) ?? {})
+	}
+}
 
 //-----------------------------------------------
 // Send protected key to server
